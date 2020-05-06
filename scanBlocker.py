@@ -6,7 +6,7 @@ from datetime import datetime
 import socket
 from collections import OrderedDict
 import iptc
-
+import argparse
 #  Logic of program:
 #  Sniff network for (TCP ONLY RIGHT NOW) connections
 #  Log each connection in the dictionary
@@ -130,9 +130,15 @@ def log(iface=None):
         filterStr = "ip and dst host "+hostIP
         sniff(filter= filterStr, prn=process_packet, iface = iface)
 def main():
+
         #check if user is root/sudo
         try:
             if os.geteuid() == 0:
+                parser = argparse.ArgumentParser(description='Detect and block TCP port scans of your host.')
+                parser.add_argument('-i',
+                       '--interface',
+                       action='store',
+                       help='Specify an interface to sniff for port scans on. Will default to system default.')
                 log()
             else:
                 print("[-] Warning: Must run as root.")
