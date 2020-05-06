@@ -42,6 +42,18 @@ def timeStamp(pkt):
 def getFlags(pkt):
         F = pkt[TCP].flags
         return F
+def printFlag(flags):
+    print("Flag: "+ str(flags))
+    if flags ==0:
+        print("TCP Null Scan")
+    if flags == 1:
+        print("TCP Fin Scan")
+    if flags == 2:
+        print("TCP Syn Scan")
+    if flags == 16:
+        print("TCP Ack Scan")
+    if flags == 18:
+         print("TCP Connect Scan")
 
 
 blockList = set()
@@ -55,6 +67,7 @@ def addConn(key,conn):
         connections[key] = conn
         if len(connections) > maxConnections:
                 connections.popitem(False); #pops the fist item
+chain = None
 
 def block(ip):
     rule = iptc.Rule()
@@ -62,7 +75,9 @@ def block(ip):
     rule.src = ip
     rule.target = rule.create_target("DROP")
     chain = iptc.Chain(iptc.Table(iptc.Table.FILTER), "INPUT")
-    chain.insert_rule(rule)
+    if rule not in chain.rules:
+        chain.insert_rule(rule)
+        print("[!]ADDING RULE TO CHAIN")
 
 def process_packet(pkt):
         #TCP Connect scan
@@ -93,21 +108,12 @@ def process_packet(pkt):
                         addConn(key,connection)
                         print("----------------Adding Connection----------------")
                         print("[+] "+ str(datetime.fromtimestamp(connection.time)) +" "+srcIP+":"+str(srcPrt) +" -> "+dstIP+":"+str(dstPrt))
-                        print("Flag: "+ str(flags))
-                        if flags ==0:
-                                print("TCP Null Scan")
-                        if flags == 1:
-                                print("TCP Fin Scan")
-                        if flags == 2:
-                                print("TCP Syn Scan")
-                        if flags == 16:
-                                print("TCP Ack Scan")
-                        if flags == 18:
-                                print("TCP Connect Scan")
+                        printFlag(flags)
                         print("--------------------------------------------------")
                 if len(connections[key].ports) >= SCANTHRESHOLD:
 
                         print("[!]============ Port scan detected============")
+                        printFlag(flags)
                         print(connections[key].src)
                         
                         blockList.add(connections[key])
@@ -127,10 +133,10 @@ def main():
         #check if user is root/sudo
         try:
             if os.geteuid() == 0:
-                    log()
+                log()
             else:
-                    print("[-] Warning: Must run as root.")
-                    sys.exit()
+                print("[-] Warning: Must run as root.")
+                sys.exit()
         finally:
                 print()
                 print([x.src for x in blockList])
