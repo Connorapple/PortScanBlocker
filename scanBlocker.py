@@ -5,15 +5,15 @@ import sys
 from datetime import datetime
 import socket
 from collections import OrderedDict
-
+import iptc
 
 #  Logic of program:
 #  Sniff network for (TCP ONLY RIGHT NOW) connections
 #  Log each connection in the dictionary
 #       ->Only keep track of N number of connections
-#       ->Only keep track of connections for T time period
-#       ->
-#
+#       ->If an incoming connection connects to more than the scan threshold of ports
+#           add it to the blocklist
+#       -> If in blocklist, make an IPtable rule to prevent future connections
 #
 
 
@@ -56,12 +56,21 @@ def addConn(key,conn):
         if len(connections) > maxConnections:
                 connections.popitem(False); #pops the fist item
 
+def block(ip):
+    rule = iptc.Rule()
+    rule.protocol = "tcp"
+    rule.src = ip
+    rule.target = rule.create_target("DROP")
+    chain = iptc.Chain(iptc.Table(iptc.Table.FILTER), "INPUT")
+    chain.insert_rule(rule)
+
 def process_packet(pkt):
         #TCP Connect scan
         # Connect 18
         # Syn 2
         # Fin 1
         # Ack 16
+        
         if TCP in pkt:
                 srcIP = pkt[IP].src
                 dstIP = pkt[IP].dst
@@ -70,7 +79,9 @@ def process_packet(pkt):
                 flags = getFlags(pkt)
 
                 if pkt[IP].src in blockList:
-                    pkt[IP].drop()
+                    rule = iptc.Rule()
+                    rule.src = srcIP
+
                 key = srcIP
                 if key in connections:
                         connection = connections[key]
@@ -103,7 +114,8 @@ def process_packet(pkt):
                         print(str(datetime.fromtimestamp(connections[key].time))+": "+connections[key].src)
 
                         print("--------------------------------------------------")
-                        #pkt.drop()
+                        block(str(key)) 
+                        
                         return
             
 
