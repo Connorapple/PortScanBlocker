@@ -7,6 +7,7 @@ import socket
 from collections import OrderedDict
 import iptc
 import argparse
+import logging
 #  Logic of program:
 #  Sniff network for (TCP ONLY RIGHT NOW) connections
 #  Log each connection in the dictionary
@@ -20,9 +21,8 @@ import argparse
 
 #This value is how many port connections an IP connects to on the host before it is considered hostile
 SCANTHRESHOLD = 25
-#This value is how many seconds a 2 potential scans must be within to stay in the log
-TIMEOUT = 10
 
+logger = logging.getLogger('ScanBlocker')
 class Connection():
         def __init__(self, pkt):
                 self.src = pkt[IP].src
@@ -42,18 +42,19 @@ def timeStamp(pkt):
 def getFlags(pkt):
         F = pkt[TCP].flags
         return F
-def printFlag(flags):
+def printFlag(flags,scan):
     print("Flag: "+ str(flags))
-    if flags ==0:
-        print("TCP Null Scan")
-    if flags == 1:
-        print("TCP Fin Scan")
-    if flags == 2:
-        print("TCP Syn Scan")
-    if flags == 16:
-        print("TCP Ack Scan")
-    if flags == 18:
-         print("TCP Connect Scan")
+    if scan:
+        if flags ==0:
+            print("TCP Null Scan")
+        if flags == 1:
+            print("TCP Fin Scan")
+        if flags == 2:
+            print("TCP Syn Scan")
+        if flags == 16:
+            print("TCP Ack Scan")
+        if flags == 18:
+            print("TCP Connect Scan")
 
 
 blockList = set()
@@ -103,29 +104,29 @@ def process_packet(pkt):
                         connection.timeStamp = timeStamp(pkt)
                         connection.time = pkt.time
                         connection.ports.add(dstPrt)
+                        connection.port = pkt[IP].dport
                 if key not in connections:
                         connection = Connection(pkt)
+                        connection.port = pkt[IP].dport
                         addConn(key,connection)
-                        print("----------------Adding Connection----------------")
+                        print("----------------Adding Connection-----------------")
                         print("[+] "+ str(datetime.fromtimestamp(connection.time)) +" "+srcIP+":"+str(srcPrt) +" -> "+dstIP+":"+str(dstPrt))
-                        printFlag(flags)
+                        printFlag(flags,False)
                         print("--------------------------------------------------")
                 if len(connections[key].ports) >= SCANTHRESHOLD:
-
-                        print("[!]============ Port scan detected============")
-                        printFlag(flags)
-                        print(connections[key].src)
-                        
+                    if connections[key] not in blockList:
                         blockList.add(connections[key])
-                        print(str(datetime.fromtimestamp(connections[key].time))+": "+connections[key].src)
-
-                        print("--------------------------------------------------")
-                        block(str(key)) 
+                        print("[!]=============Port scan detected================")
+                        printFlag(flags,True)
                         
+                        print(str(datetime.fromtimestamp(connections[key].time))+": "+connections[key].src)
+                        block(str(key)) 
+                        block(str(key))
+                        print("--------------------------------------------------")
                         return
             
 
-def log(iface=None):
+def log(iface=None, hostIP=None):
         hostIP = str(socket.gethostbyname(socket.gethostname()))
         filterStr = "ip and dst host "+hostIP
         sniff(filter= filterStr, prn=process_packet, iface = iface)
@@ -135,16 +136,41 @@ def main():
         try:
             if os.geteuid() == 0:
                 parser = argparse.ArgumentParser(description='Detect and block TCP port scans of your host.')
+                parser.add_argument('-H',
+                        '--hostIP',
+                        action='store',
+                        help="Specify your host inet address. Will default to the inet address of default interface.")
+
                 parser.add_argument('-i',
                        '--interface',
                        action='store',
                        help='Specify an interface to sniff for port scans on. Will default to system default.')
-                log()
+                parser.add_argument('-c',
+                        '--clear',
+                        action='store_true',
+                        help='Use this flag to clear all blocked IPs before running.')
+                #parser.add_argument('-d',
+                #       '--daemon',
+                #       action='store_true',
+                #       help='Use this flag to run as daemon proccess and log to file.')
+                args = parser.parse_args()
+                if args.clear:
+                    chain = iptc.Chain(iptc.Table(iptc.Table.FILTER), "INPUT")
+                    chain.flush()
+
+                if args.interface and args.hostIP:
+                    log(args.interface,args.hostIP)
+                if args.interface:
+                    log(args.interface)
+                if args.hostIP:
+                    log(None,args.hostIP)
+                else:
+                    log()
             else:
                 print("[-] Warning: Must run as root.")
                 sys.exit()
         finally:
-                print()
+                print("\nIP addresses blocked this session:")
                 print([x.src for x in blockList])
                 sys.exit(0)
 if __name__ == '__main__':

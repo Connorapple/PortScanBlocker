@@ -1,0 +1,2 @@
+scapy==2.4.3
+python_iptables==0.14.0
